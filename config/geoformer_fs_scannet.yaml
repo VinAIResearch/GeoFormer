@@ -1,0 +1,100 @@
+GENERAL:
+  task: train  # train, test
+  manual_seed: 123
+  model_dir: model/pointgroup/pointgroup.py
+  dataset_dir: data/scannetv2_inst.py
+
+META:
+  train_fold: 0
+  test_fold: 0
+  cvfold: 0
+  k_shot: 1
+  similarity_thresh: 0.2
+  fix_support: False
+  negative_ratio: 2
+
+DETR:
+
+  dec_nlayers: 4
+  dec_dim: 64
+  dec_ffn_dim: 64
+  dec_dropout: 0.1
+  dec_nhead: 4
+
+  n_downsampling: 20000
+  n_decode_point: 2048
+  n_query_points: 128
+
+  filter_biases_wd: False
+  weight_decay: 0.1
+  base_lr: 0.00025
+  warm_lr: 0.000001
+  warm_lr_epochs: 3
+  final_lr: 0.000001
+  lr_scheduler: cosine
+  
+DATA:
+  data_root: data
+  dataset: scannetv2
+
+  classes: 13
+  ignore_label: -100
+
+  input_channel: 3
+  scale: 50   # voxel_size = 1 / scale, scale 50(2cm)
+  batch_size: 4
+  full_scale: [128, 512]
+  full_scale_support: [64, 128]
+  max_npoint: 250000
+  mode: 4 # 4=mean
+
+STRUCTURE:
+  model_name: pointgroup
+  m: 16 
+  block_residual: True
+  block_reps: 2
+
+  use_coords: True
+
+TRAIN:
+  start_epoch: 0
+  prepare_epochs: 0
+  epochs: 200
+  num_workers: 4 # data loader workers
+  optim: Adam # Adam or SGD
+  lr: 0.005
+  step_epoch: 384
+  multiplier: 0.5
+  momentum: 0.9
+  weight_decay: 0.0001
+  save_freq: 4  # also eval_freq
+  save_freq_last: 1
+
+  fix_module: [
+    input_conv, unet, output_layer, semantic, semantic_linear, 
+    # set_aggregator,
+    # similarity_net,
+    # pos_embedding, 
+    # mask_tower, controller,
+    # encoder_to_decoder_projection, 
+    # query_projection,
+    # decoder
+  ]
+
+TEST:
+  split: val
+  test_epoch: 29999
+  test_workers: 0
+  test_seed: 567
+
+  TEST_NMS_THRESH: 0.3
+  TEST_SCORE_THRESH: 0.4
+  TEST_NPOINT_THRESH: 50
+
+  eval: True
+  save_semantic: False
+  save_pt_offsets: False
+  save_instance: False
+  save_cluster: False
+  save_fg: False
+  save_instance: False

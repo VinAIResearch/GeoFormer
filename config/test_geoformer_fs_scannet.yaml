@@ -1,0 +1,106 @@
+GENERAL:
+  task: train  # train, test
+  manual_seed: 123
+  model_dir: model/pointgroup/pointgroup.py
+  dataset_dir: data/scannetv2_inst.py
+
+META:
+  train_fold: 0
+  cvfold: 1
+  k_shot: 1
+  similarity_thresh: 0.2
+  fix_support: True
+  run_num: 10
+  type_support: fullscene_fold
+  file_support: support_vectors_df
+  test_model: geoformer
+
+DETR:
+  dec_nlayers: 4
+  dec_dim: 64
+  dec_ffn_dim: 64
+  dec_dropout: 0.1
+  dec_nhead: 4
+  use_rel: True # NOTE modify transformer to input relative pos of n_queires x n _context
+
+
+  n_downsampling: 20000
+  n_decode_point: 2048
+  n_query_points: 128
+
+  filter_biases_wd: False
+  weight_decay: 0.1
+  base_lr: 0.0005
+  warm_lr: 0.000001
+  warm_lr_epochs: 3
+  final_lr: 0.000001
+  lr_scheduler: cosine
+  
+DATA:
+  data_root: data
+  dataset: scannetv2
+
+  classes: 13
+  ignore_label: -100
+
+  input_channel: 3
+  scale: 50   # voxel_size = 1 / scale, scale 50(2cm)
+  batch_size: 1
+  full_scale: [128, 512]
+  full_scale_support: [64, 128]
+  max_npoint: 250000
+  mode: 4 # 4=mean
+
+STRUCTURE:
+  model_name: pointgroup
+  m: 16 
+  block_residual: True
+  block_reps: 2
+
+  use_coords: True
+
+TRAIN:
+  start_epoch: 0
+  prepare_epochs: 40
+  epochs: 200
+  num_workers: 1 # data loader workers
+  optim: Adam # Adam or SGD
+  lr: 0.01
+  step_epoch: 384
+  multiplier: 0.5
+  momentum: 0.9
+  weight_decay: 0.0001
+  save_freq: 2000  # also eval_freq
+  save_freq_last: 50
+  loss_weight: [1.0, 1.0, 1.0, 1.0] # semantic_loss, offset_norm_loss, offset_dir_loss, score_loss
+
+  fix_module: [
+    input_conv, unet, output_layer, semantic, semantic_linear, 
+    set_aggregator,
+    similarity_net,
+    pos_embedding, 
+    mask_tower, controller,
+    encoder_to_decoder_projection, 
+    query_projection,
+    decoder
+  ]
+
+
+TEST:
+  split: val
+  test_epoch: 29999
+  test_workers: 0
+  test_seed: 567
+
+  BENCHMARK_SEMANTIC_LABELS: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]
+  TEST_NMS_THRESH: 0.05
+  TEST_SCORE_THRESH: 0.5
+  TEST_NPOINT_THRESH: 500
+
+  eval: True
+  save_semantic: False
+  save_pt_offsets: False
+  save_instance: False
+  save_cluster: False
+  save_fg: False
+  save_instance: False
