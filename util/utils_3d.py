@@ -91,3 +91,52 @@ def non_max_suppression_gpu(ious, scores, threshold):
         ixs = ixs[mask]
         
     return torch.tensor(pick, dtype=torch.long, device=scores.device)
+
+def matrix_non_max_suppression(proposals_pred, scores, categories, kernel='gaussian', sigma=2.0, final_score_thresh=0.05):
+    ixs = torch.argsort(scores, descending=True)
+    # ixs = ixs[:max_prev_nms]
+    n_samples = len(ixs)
+
+    categories_sorted = categories[ixs]
+    proposals_pred_sorted = proposals_pred[ixs]
+    scores_sorted = scores[ixs]
+
+    # (nProposal, N), float, cuda
+    intersection = torch.einsum("nc,mc->nm", proposals_pred_sorted.type(scores.dtype), proposals_pred_sorted.type(scores.dtype))
+    proposals_pointnum = proposals_pred_sorted.sum(1)  # (nProposal), float, cuda
+    proposals_pn_h = proposals_pointnum.unsqueeze(-1).repeat(1, proposals_pointnum.shape[0])
+    proposals_pn_v = proposals_pointnum.unsqueeze(0).repeat(proposals_pointnum.shape[0], 1)
+    ious = intersection / (proposals_pn_h + proposals_pn_v - intersection)
+
+    
+
+    # label_specific matrix.
+    categories_x = categories_sorted[None,:].expand(n_samples, n_samples)
+    label_matrix = (categories_x == categories_x.transpose(1, 0)).float().triu(diagonal=1)
+
+    # IoU compensation
+    compensate_iou, _ = (ious * label_matrix).max(0)
+    compensate_iou = compensate_iou.expand(n_samples, n_samples).transpose(1, 0)
+
+    # IoU decay 
+    decay_iou = ious * label_matrix
+
+    # matrix nms
+    if kernel == 'gaussian':
+        decay_matrix = torch.exp(-1 * sigma * (decay_iou ** 2))
+        compensate_matrix = torch.exp(-1 * sigma * (compensate_iou ** 2))
+        decay_coefficient, _ = (decay_matrix / compensate_matrix).min(0)
+    elif kernel == 'linear':
+        decay_matrix = (1-decay_iou)/(1-compensate_iou)
+        decay_coefficient, _ = decay_matrix.min(0)
+    else:
+        raise NotImplementedError
+
+    # update the score.
+    cate_scores_update = scores_sorted * decay_coefficient
+
+    # print('cate_scores_update', cate_scores_update)
+    score_mask = (cate_scores_update >= final_score_thresh)
+
+    return ixs[score_mask]
+

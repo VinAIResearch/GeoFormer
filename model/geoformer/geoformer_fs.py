@@ -9,7 +9,7 @@ import faiss.contrib.torch_utils
 from lib.pointgroup_ops.functions import pointgroup_ops
 from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotesSeparate
 from model.geoformer.geodesic_utils import cal_geodesic_vectorize
-from model.geoformer.geoformer_modules import ResidualBlock, UBlock, conv_with_kaiming_uniform
+from model.geoformer.geoformer_modules import ResidualBlock, UBlock, conv_with_kaiming_uniform, random_downsample
 from model.helper import GenericMLP
 from model.pos_embedding import PositionEmbeddingCoordsSine
 from model.transformer_detr import TransformerDecoder, TransformerDecoderLayer
@@ -262,7 +262,7 @@ class GeoFormerFS(nn.Module):
 
     def mask_heads_forward(
         self, geo_dist, mask_features, weights, biases, num_insts, coords_, fps_sampling_coords, use_geo=True
-    ):
+    ):  
         assert mask_features.dim() == 3
         n_layers = len(weights)
         n_mask = mask_features.size(0)
@@ -338,16 +338,19 @@ class GeoFormerFS(nn.Module):
 
                 geo_dist = geo_dists[b]
 
-                mask_logits = self.mask_heads_forward(
-                    geo_dist,
-                    mask_feature_b,
-                    weights,
-                    biases,
-                    n_queries,
-                    locs_float_b,
-                    fps_sampling_locs_b,
-                    use_geo=True,
-                )
+                with torch.cuda.amp.autocast(enabled=True):
+                    mask_logits = self.mask_heads_forward(
+                        geo_dist,
+                        mask_feature_b,
+                        weights,
+                        biases,
+                        n_queries,
+                        locs_float_b,
+                        fps_sampling_locs_b,
+                        use_geo=True,
+                    )
+
+                mask_logits = mask_logits.float()
 
                 mask_logits = mask_logits.squeeze(dim=0)  # (n_queries) x N_mask
                 mask_logits_list.append(mask_logits)
@@ -453,6 +456,7 @@ class GeoFormerFS(nn.Module):
 
             outputs["semantic_scores"] = semantic_scores
         else:
+            # with torch.cuda.amp.autocast(enabled=True):
             output_feats, semantic_scores, semantic_preds = self.forward_backbone(scene_dict, batch_size)
 
             outputs["semantic_scores"] = semantic_scores
@@ -525,61 +529,71 @@ class GeoFormerFS(nn.Module):
         if support_embeddings is None:
             support_embeddings = self.process_support(support_dict, training)  # batch x channel
 
-        # NOTE aggregate support and query feats
-        channel_wise_tensor = context_feats * support_embeddings.unsqueeze(1).repeat(1, cfg.n_decode_point, 1)
-        subtraction_tensor = context_feats - support_embeddings.unsqueeze(1).repeat(1, cfg.n_decode_point, 1)
-        aggregation_tensor = torch.cat(
-            [channel_wise_tensor, subtraction_tensor, context_feats], dim=2
-        )  # batch * n_sampling *(3*channel)
+        with torch.cuda.amp.autocast(enabled=True):
+            # NOTE aggregate support and query feats
+            channel_wise_tensor = context_feats * support_embeddings.unsqueeze(1).repeat(1, cfg.n_decode_point, 1)
+            subtraction_tensor = context_feats - support_embeddings.unsqueeze(1).repeat(1, cfg.n_decode_point, 1)
+            aggregation_tensor = torch.cat(
+                [channel_wise_tensor, subtraction_tensor, context_feats], dim=2
+            )  # batch * n_sampling *(3*channel)
 
-        # NOTE transformer decoder
-        dec_outputs = self.forward_decoder(
-            context_locs, aggregation_tensor, query_locs, pc_dims, geo_dists, pre_enc_inds
-        )
+            # NOTE transformer decoder
+            
+            dec_outputs = self.forward_decoder(
+                context_locs, aggregation_tensor, query_locs, pc_dims, geo_dists, pre_enc_inds
+            )
 
-        if not training:
-            dec_outputs = dec_outputs[-1:, ...]
+            if not training:
+                dec_outputs = dec_outputs[-1:, ...]
+            else:
+                # NOTE: downsample when training to avoid OOM
+                idxs_subsample, idxs_subsample_raw = random_downsample(batch_offsets_, batch_size, n_subsample=40000)
 
-        # NOTE dynamic convolution
-        mask_predictions = self.get_mask_prediction(
-            geo_dists, dec_outputs, mask_features_, locs_float_, query_locs, batch_offsets_
-        )
+                geo_dists2 = []
+                for b in range(batch_size):
+                    geo_dists2.append(geo_dists[b][:, idxs_subsample_raw[b]])
 
-        mask_logit_final = mask_predictions[-1]["mask_logits"]
+                del geo_dists
+                geo_dists = geo_dists2
 
-        # NOTE check similarity between support and anchor
-        similarity_score, pre_enc_inds_mask = self.get_similarity(
-            mask_logit_final,
-            batch_offsets_,
-            locs_float_,
-            output_feats_,
-            support_embeddings,
-            pre_enc_inds_mask=self.cache_pre_enc_inds_mask if remember else None,
-        )
-        self.cache_pre_enc_inds_mask = pre_enc_inds_mask
+                fg_idxs = fg_idxs[idxs_subsample]
+                mask_features_ = mask_features_[idxs_subsample, :]
+                locs_float_ = locs_float_[idxs_subsample, :]
+                batch_idxs_ = batch_idxs_[idxs_subsample]
+                batch_offsets_ = utils.get_batch_offsets(batch_idxs_, batch_size)
 
-        if training:
-            outputs["fg_idxs"] = fg_idxs
-            outputs["num_insts"] = cfg.n_query_points * batch_size
-            outputs["batch_idxs"] = batch_idxs_
-            outputs["simnet"] = similarity_score
-            outputs["mask_predictions"] = mask_predictions
+            # NOTE dynamic convolution
+            mask_predictions = self.get_mask_prediction(
+                geo_dists, dec_outputs, mask_features_, locs_float_, query_locs, batch_offsets_
+            )
 
+            mask_logit_final = mask_predictions[-1]["mask_logits"]
+
+            similarity_score = self.similarity_net(aggregation_tensor[:, :cfg.n_query_points, :].flatten(0,1)).squeeze(-1).reshape(batch_size, cfg.n_query_points) # batch  x n_sampling
+
+            
+            if training:
+                outputs["fg_idxs"] = fg_idxs
+                outputs["num_insts"] = cfg.n_query_points * batch_size
+                outputs["batch_idxs"] = batch_idxs_
+                outputs["simnet"] = similarity_score
+                outputs["mask_predictions"] = mask_predictions
+
+                return outputs
+
+            similarity_score_sigmoid = similarity_score.detach().sigmoid()
+            scores_final, proposals_pred = self.generate_proposal(
+                mask_logit_final,
+                similarity_score_sigmoid,
+                fg_idxs,
+                batch_offsets,
+                logit_thresh=0.2,
+                score_thresh=cfg.TEST_SCORE_THRESH,
+                npoint_thresh=cfg.TEST_NPOINT_THRESH,
+                sim_score_thresh=cfg.similarity_thresh,
+            )
+            outputs["proposal_scores"] = (scores_final, proposals_pred)
             return outputs
-
-        similarity_score_sigmoid = similarity_score.detach().sigmoid()
-        scores_final, proposals_pred = self.generate_proposal(
-            mask_logit_final,
-            similarity_score_sigmoid,
-            fg_idxs,
-            batch_offsets,
-            logit_thresh=0.2,
-            score_thresh=cfg.TEST_SCORE_THRESH,
-            npoint_thresh=cfg.TEST_NPOINT_THRESH,
-            sim_score_thresh=cfg.similarity_thresh,
-        )
-        outputs["proposal_scores"] = (scores_final, proposals_pred)
-        return outputs
 
     def forward_backbone(self, batch_input, batch_size):
         context_backbone = torch.enable_grad if self.training and "unet" not in self.fix_module else torch.no_grad

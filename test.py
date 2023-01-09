@@ -12,7 +12,7 @@ from datasets.scannetv2 import BENCHMARK_SEMANTIC_LABELS, FOLD
 from datasets.scannetv2_inst import InstDataset
 from model.geoformer.geoformer import GeoFormer
 from util.log import create_logger
-from util.utils_3d import load_ids, non_max_suppression_gpu
+from util.utils_3d import load_ids, non_max_suppression_gpu, matrix_non_max_suppression
 
 
 def init():
@@ -75,15 +75,22 @@ def do_test(model, dataloader, cur_epoch):
             if semantic_id.shape[0] == 0:
                 pick_idxs = np.empty(0)
             else:
-                proposals_pred_f = masks_final.float()  # (nProposal, N), float, cuda
-                intersection = torch.mm(proposals_pred_f, proposals_pred_f.t())  # (nProposal, nProposal), float, cuda
-                proposals_pointnum = proposals_pred_f.sum(1)  # (nProposal), float, cuda
-                proposals_pn_h = proposals_pointnum.unsqueeze(-1).repeat(1, proposals_pointnum.shape[0])
-                proposals_pn_v = proposals_pointnum.unsqueeze(0).repeat(proposals_pointnum.shape[0], 1)
-                cross_ious = intersection / (proposals_pn_h + proposals_pn_v - intersection)
-                pick_idxs = non_max_suppression_gpu(
-                    cross_ious, scores_final, cfg.TEST_NMS_THRESH
-                )  # int, (nCluster, N)
+                # proposals_pred_f = masks_final.float()  # (nProposal, N), float, cuda
+                # intersection = torch.mm(proposals_pred_f, proposals_pred_f.t())  # (nProposal, nProposal), float, cuda
+                # proposals_pointnum = proposals_pred_f.sum(1)  # (nProposal), float, cuda
+                # proposals_pn_h = proposals_pointnum.unsqueeze(-1).repeat(1, proposals_pointnum.shape[0])
+                # proposals_pn_v = proposals_pointnum.unsqueeze(0).repeat(proposals_pointnum.shape[0], 1)
+                # cross_ious = intersection / (proposals_pn_h + proposals_pn_v - intersection)
+                # pick_idxs = non_max_suppression_gpu(
+                #     cross_ious, scores_final, cfg.TEST_NMS_THRESH
+                # )  # int, (nCluster, N)
+
+                pick_idxs = matrix_non_max_suppression(
+                    masks_final.float(),
+                    scores_final,
+                    semantic_id,
+                    final_score_thresh=0.5
+                )
 
             clusters = masks_final[pick_idxs].cpu().numpy()
             cluster_scores = scores_final[pick_idxs].cpu().numpy()

@@ -11,7 +11,7 @@ import numpy as np
 from lib.pointgroup_ops.functions import pointgroup_ops
 from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotesSeparate
 from model.geoformer.geodesic_utils import cal_geodesic_vectorize
-from model.geoformer.geoformer_modules import ResidualBlock, UBlock, conv_with_kaiming_uniform
+from model.geoformer.geoformer_modules import ResidualBlock, UBlock, conv_with_kaiming_uniform, random_downsample
 from model.helper import GenericMLP
 from model.pos_embedding import PositionEmbeddingCoordsSine
 from model.transformer_detr import TransformerDecoder, TransformerDecoderLayer
@@ -467,36 +467,22 @@ class GeoFormer(nn.Module):
 
         if training:
             # NOTE subsample for dynamic conv
-            object_idxs_subsample = []
+
+            # NOTE: downsample when training to avoid OOM
+            idxs_subsample, idxs_subsample_raw = random_downsample(batch_offsets_, batch_size, n_subsample=30000)
+
             geo_dists_subsample = []
             for b in range(batch_size):
-                start, end = batch_offsets_[b], batch_offsets_[b + 1]
-                num_points_b = (end - start).cpu()
+                geo_dists_subsample.append(geo_dists[b][:, idxs_subsample_raw[b]])
+            del geo_dists
 
-                if num_points_b > cfg.n_downsampling:
-                    new_inds = (
-                        torch.tensor(
-                            np.random.choice(num_points_b, cfg.n_downsampling, replace=False),
-                            dtype=torch.long,
-                            device=locs_float.device,
-                        )
-                    )
-                else:
-                    new_inds = torch.arange(num_points_b, dtype=torch.long, device=locs_float.device)
-                object_idxs_subsample.append(new_inds+start)
-
-                geo_dist_subsample_b = geo_dists[b][:, new_inds.long()]  # n_queries x n_contexts
-                geo_dists_subsample.append(geo_dist_subsample_b)
-
-            object_idxs_subsample = torch.cat(object_idxs_subsample)  # N_subsample: batch x 20000
-
-            mask_features_subsample = mask_features_[object_idxs_subsample]
-            locs_float_subsample = locs_float_[object_idxs_subsample]
-            batch_idxs_subsample = batch_idxs_[object_idxs_subsample]
-            batch_offsets_subsample = self.get_batch_offsets(batch_idxs_[object_idxs_subsample], batch_size)
+            mask_features_subsample = mask_features_[idxs_subsample]
+            locs_float_subsample = locs_float_[idxs_subsample]
+            batch_idxs_subsample = batch_idxs_[idxs_subsample]
+            batch_offsets_subsample = self.get_batch_offsets(batch_idxs_subsample, batch_size)
 
 
-            outputs["fg_idxs"] = fg_idxs[object_idxs_subsample]
+            outputs["fg_idxs"] = fg_idxs[idxs_subsample]
             outputs["num_insts"] = cfg.n_query_points * batch_size
             outputs["batch_idxs"] = batch_idxs_subsample
 

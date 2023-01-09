@@ -27,9 +27,9 @@ DETR:
 
   filter_biases_wd: False
   weight_decay: 0.1
-  base_lr: 0.00025
+  base_lr: 0.0005
   warm_lr: 0.000001
-  warm_lr_epochs: 3
+  warm_lr_epochs: 1
   final_lr: 0.000001
   lr_scheduler: cosine
   
@@ -42,7 +42,7 @@ DATA:
 
   input_channel: 3
   scale: 50   # voxel_size = 1 / scale, scale 50(2cm)
-  batch_size: 4
+  batch_size: 6
   full_scale: [128, 512]
   full_scale_support: [64, 128]
   max_npoint: 250000
@@ -59,8 +59,8 @@ STRUCTURE:
 TRAIN:
   start_epoch: 0
   prepare_epochs: 0
-  epochs: 200
-  num_workers: 4 # data loader workers
+  epochs: 40
+  num_workers: 6 # data loader workers
   optim: Adam # Adam or SGD
   lr: 0.005
   step_epoch: 384
@@ -72,13 +72,13 @@ TRAIN:
 
   fix_module: [
     input_conv, unet, output_layer, semantic, semantic_linear, 
-    # set_aggregator,
-    # similarity_net,
-    # pos_embedding, 
+    set_aggregator,
+    pos_embedding, 
+    query_projection,
+    decoder,
     # mask_tower, controller,
     # encoder_to_decoder_projection, 
-    # query_projection,
-    # decoder
+    # similarity_net,
   ]
 
 TEST:

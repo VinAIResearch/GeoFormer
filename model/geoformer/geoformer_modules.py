@@ -5,7 +5,7 @@ import torch.nn as nn
 from model.transformer import TransformerEncoder
 from spconv.modules import SparseModule
 from util.warpper import BatchNorm1d, Conv1d
-
+import numpy as np
 
 class ResidualBlock(SparseModule):
     def __init__(self, in_channels, out_channels, norm_fn, indice_key=None):
@@ -116,7 +116,7 @@ class UBlock(nn.Module):
             output.features = torch.cat((identity.features, output_decoder.features), dim=1)
 
             output = self.blocks_tail(output)
-
+        
         if self.before_transformer_linear:
             batch_ids = output.indices[:, 0]
             xyz = output.indices[:, 1:].float()
@@ -159,3 +159,28 @@ def conv_with_kaiming_uniform(norm=None, activation=None, use_sep=False):
         return conv
 
     return make_conv
+
+
+
+def random_downsample(batch_offsets, batch_size, n_subsample=30000):
+    idxs_subsample = []
+    idxs_subsample_raw = []
+    for b in range(batch_size):
+        start, end = batch_offsets[b], batch_offsets[b + 1]
+        num_points_b = (end - start).cpu()
+
+        if n_subsample == -1 or n_subsample >= num_points_b:
+            new_inds = torch.arange(num_points_b, dtype=torch.long, device=batch_offsets.device)
+        else:
+            new_inds = (
+                torch.tensor(
+                    np.random.choice(num_points_b, n_subsample, replace=False),
+                    dtype=torch.long,
+                    device=batch_offsets.device,
+                )
+            )
+        idxs_subsample_raw.append(new_inds)
+        idxs_subsample.append(new_inds + start)
+    idxs_subsample = torch.cat(idxs_subsample)  # N_subsample: batch x 20000
+    # idxs_subsample_raw = torch.cat(idxs_subsample_raw)
+    return idxs_subsample, idxs_subsample_raw

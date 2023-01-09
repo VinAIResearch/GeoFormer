@@ -116,7 +116,10 @@ class FSInstSetCriterion(nn.Module):
 
     def sim_loss(self, similarity_score, instance_masked, mask_logits, batch_ids):
         train_label = torch.zeros((self.batch_size, self.n_queries)).cuda()
+        valid_label = torch.zeros((self.batch_size, self.n_queries)).cuda()
         n_hard_negatives = torch.zeros(self.batch_size).cuda()
+
+        total_negative_inds = 0
         for b in range(self.batch_size):
             num_positive = 0
             num_negative = 0
@@ -147,14 +150,18 @@ class FSInstSetCriterion(nn.Module):
                 if iou >= 0.5:
                     num_positive += 1
                     positive_inds.append(n)
+                    valid_label[b, n] = 1
                 elif iou <= 0.3:
                     num_negative += 1
                     negative_inds.append(n)
+                    valid_label[b, n] = 1
 
             if num_negative > cfg.negative_ratio * num_positive:
                 n_hard_negatives[b] = cfg.negative_ratio * num_positive
             else:
                 n_hard_negatives[b] = num_negative
+
+            total_negative_inds += (num_negative)
 
             train_label[b, positive_inds] = 1
             # print('train_label', train_label)
@@ -175,7 +182,9 @@ class FSInstSetCriterion(nn.Module):
         hard_negatives = hardness_ranks < n_hard_negatives.unsqueeze(1)  # (N, 8732)
         loss_hard_neg = loss_neg[hard_negatives]
         similarity_loss = (loss_hard_neg.sum() + loss_pos.sum()) / train_label.sum().float()
+        # print("Positive/negative:", train_label.sum(), valid_label.sum() - train_label.sum())
 
+        # similarity_loss = (loss_all * valid_label).sum() / (valid_label.sum() + 1e-4)
         return similarity_loss
 
     def single_layer_loss(

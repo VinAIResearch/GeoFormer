@@ -82,6 +82,7 @@ class FSInstDataset:
         self.test_names = [os.path.basename(i).split(".")[0][:12] for i in self.file_names]
         self.test_combs = self.get_test_comb()
         test_set = list(np.arange(len(self.test_names)))
+        
         dataloader = DataLoader(
             test_set,
             batch_size=1,

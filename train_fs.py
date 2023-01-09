@@ -89,7 +89,7 @@ def train_one_epoch(epoch, train_loader, model, criterion, optimizer):
 
         del loss, outputs, loss_dict
         if iteration % 10 == 0:
-            if epoch <= cfg.prepare_epochs:
+            if epoch < cfg.prepare_epochs:
                 logger.info(
                     "Epoch: {}/{}, iter: {}/{} | lr: {:.6f} | loss: {:.4f}({:.4f}) | Focal loss: {:.4f}({:.4f}) | Dice loss: {:.4f}({:.4f}) | Mem: {:.2f} | iter_t: {:.2f} | remain_t: {remain_time}\n".format(
                         epoch,
@@ -119,7 +119,7 @@ def train_one_epoch(epoch, train_loader, model, criterion, optimizer):
                 #     iter_time.val, remain_time=remain_time))
 
                 logger.info(
-                    "Epoch: {}/{}, iter: {}/{} | lr: {:.6f} | loss: {:.4f}({:.4f}) | Focal loss: {:.4f}({:.4f}) | Dice loss: {:.4f}({:.4f}) | Mem: {:.2f} | iter_t: {:.2f} | remain_t: {remain_time}\n".format(
+                    "Epoch: {}/{}, iter: {}/{} | lr: {:.6f} | loss: {:.4f}({:.4f}) | Sim loss: {:.4f}({:.4f}) | Focal loss: {:.4f}({:.4f}) | Dice loss: {:.4f}({:.4f}) | Mem: {:.2f} | iter_t: {:.2f} | remain_t: {remain_time}\n".format(
                         epoch,
                         cfg.epochs,
                         iteration + 1,
@@ -127,7 +127,7 @@ def train_one_epoch(epoch, train_loader, model, criterion, optimizer):
                         curr_lr,
                         am_dict["loss"].val,
                         am_dict["loss"].avg,
-                        # am_dict['sim_loss'].val, am_dict['sim_loss'].avg,
+                        am_dict['sim_loss'].val, am_dict['sim_loss'].avg,
                         am_dict["focal_loss"].val,
                         am_dict["focal_loss"].avg,
                         am_dict["dice_loss"].val,
