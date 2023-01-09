@@ -36,8 +36,8 @@ Please refer to [training guide](docs/TRAIN.md).
 
 ## Quick Demo
 
-* Pretrain Geoformer: [GoogleDrive](https://drive.google.com/file/d/1HFr2F2YwtitbrblwtKknO5Vuo4xNswXG/view?usp=sharing)
-* Pretrain Few-shot Geoformer: [GoogleDrive](https://drive.google.com/file/d/1VtLAT8UwRV4KXfuiTK4Op2LIwTZZ9-l7/view?usp=sharing)
+* Pretrain Geoformer: [GoogleDrive](https://drive.google.com/file/d/1VtLAT8UwRV4KXfuiTK4Op2LIwTZZ9-l7/view?usp=sharing)
+* Pretrain Few-shot Geoformer: [GoogleDrive](https://drive.google.com/file/d/1HFr2F2YwtitbrblwtKknO5Vuo4xNswXG/view?usp=sharing)
 
 We provided a quick inference on ScannetV2 dataset with our pretrained model 
 
