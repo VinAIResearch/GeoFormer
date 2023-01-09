@@ -547,7 +547,7 @@ class GeoFormerFS(nn.Module):
                 dec_outputs = dec_outputs[-1:, ...]
             else:
                 # NOTE: downsample when training to avoid OOM
-                idxs_subsample, idxs_subsample_raw = random_downsample(batch_offsets_, batch_size, n_subsample=40000)
+                idxs_subsample, idxs_subsample_raw = random_downsample(batch_offsets_, batch_size, n_subsample=30000)
 
                 geo_dists2 = []
                 for b in range(batch_size):
@@ -571,7 +571,7 @@ class GeoFormerFS(nn.Module):
 
             similarity_score = self.similarity_net(aggregation_tensor[:, :cfg.n_query_points, :].flatten(0,1)).squeeze(-1).reshape(batch_size, cfg.n_query_points) # batch  x n_sampling
 
-            
+
             if training:
                 outputs["fg_idxs"] = fg_idxs
                 outputs["num_insts"] = cfg.n_query_points * batch_size

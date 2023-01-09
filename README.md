@@ -36,7 +36,10 @@ Please refer to [training guide](docs/TRAIN.md).
 
 ## Quick Demo
 
-We provided a quick inference on ScannetV2 dataset with our pretrained model ([GoogleDrive](https://drive.google.com/file/d/1HFr2F2YwtitbrblwtKknO5Vuo4xNswXG/view?usp=sharing))
+* Pretrain Geoformer: [GoogleDrive](https://drive.google.com/file/d/1HFr2F2YwtitbrblwtKknO5Vuo4xNswXG/view?usp=sharing)
+* Pretrain Few-shot Geoformer: [GoogleDrive](https://drive.google.com/file/d/1VtLAT8UwRV4KXfuiTK4Op2LIwTZZ9-l7/view?usp=sharing)
+
+We provided a quick inference on ScannetV2 dataset with our pretrained model 
 
 ```bash
 python test_fs.py --config config/test_geoformer_fs_scannet.yaml --output_path results/test --resume pretrains/best_fs_geoformer_scannet_fold0.pth

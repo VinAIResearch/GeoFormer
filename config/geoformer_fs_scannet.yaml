@@ -42,7 +42,7 @@ DATA:
 
   input_channel: 3
   scale: 50   # voxel_size = 1 / scale, scale 50(2cm)
-  batch_size: 6
+  batch_size: 8
   full_scale: [128, 512]
   full_scale_support: [64, 128]
   max_npoint: 250000
