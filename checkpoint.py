@@ -26,8 +26,12 @@ def align_and_update_state_dicts(model_state_dict, loaded_state_dict):
     loaded_keys = sorted(list(loaded_state_dict.keys()))
     # get a matrix of string matches, where each (i, j) entry correspond to the size of the
     # loaded_key string, if it matches
-    match_matrix = [len(j) if i.endswith(j) else 0 for i in current_keys for j in loaded_keys]
-    match_matrix = torch.as_tensor(match_matrix).view(len(current_keys), len(loaded_keys))
+    match_matrix = [
+        len(j) if i.endswith(j) else 0 for i in current_keys for j in loaded_keys
+    ]
+    match_matrix = torch.as_tensor(match_matrix).view(
+        len(current_keys), len(loaded_keys)
+    )
     max_match_size, idxs = match_matrix.max(1)
     # remove indices that correspond to no-match
     idxs[max_match_size == 0] = -1
@@ -44,15 +48,19 @@ def align_and_update_state_dicts(model_state_dict, loaded_state_dict):
         key = current_keys[idx_new]
         key_old = loaded_keys[idx_old]
         if loaded_state_dict[key_old].shape != model_state_dict[key].shape:
-            # if 'unet' in key or 'input_conv' in key:
-            #     reshaped = loaded_state_dict[key_old].permute(4,0,1,2,3)
-            #     loaded_state_dict[key_old] = reshaped
-            # else:
-            print(
-                "Skip loading parameter {}, required shape{}, "
-                "loaded shape{}.".format(key, model_state_dict[key].shape, loaded_state_dict[key_old].shape)
-            )
-            loaded_state_dict[key_old] = model_state_dict[key]
+            if "unet" in key or "input_conv" in key:
+                reshaped = loaded_state_dict[key_old].permute(4, 0, 1, 2, 3)
+                loaded_state_dict[key_old] = reshaped
+            else:
+                print(
+                    "Skip loading parameter {}, required shape{}, "
+                    "loaded shape{}.".format(
+                        key,
+                        model_state_dict[key].shape,
+                        loaded_state_dict[key_old].shape,
+                    )
+                )
+                loaded_state_dict[key_old] = model_state_dict[key]
 
         model_state_dict[key] = loaded_state_dict[key_old]
         logger.info(
@@ -87,7 +95,16 @@ def mkdir_p(path):
             raise
 
 
-def checkpoint(model, optimizer, epoch, log_dir, best_val=None, best_val_iter=None, postfix=None, last=False):
+def checkpoint(
+    model,
+    optimizer,
+    epoch,
+    log_dir,
+    best_val=None,
+    best_val_iter=None,
+    postfix=None,
+    last=False,
+):
     mkdir_p(log_dir)
 
     if last:
@@ -95,7 +112,11 @@ def checkpoint(model, optimizer, epoch, log_dir, best_val=None, best_val_iter=No
     else:
         filename = f"checkpoint_epoch_{epoch}.pth"
     checkpoint_file = log_dir + "/" + filename
-    state = {"epoch": epoch, "state_dict": model.state_dict(), "optimizer": optimizer.state_dict()}
+    state = {
+        "epoch": epoch,
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
 
     torch.save(state, checkpoint_file)
     logging.info(f"Checkpoint saved to {checkpoint_file}")
