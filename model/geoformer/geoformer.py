@@ -1,7 +1,10 @@
 import functools
 
 # import spconv.pytorch as spconv
-import spconv as spconv
+# import spconv as spconv
+from spconv.pytorch.modules import SparseSequential
+from spconv.pytorch.conv import SubMConv3d
+from spconv.pytorch.core import SparseConvTensor
 import torch
 import torch.nn as nn
 
@@ -11,7 +14,12 @@ import numpy as np
 from lib.pointgroup_ops.functions import pointgroup_ops
 from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotesSeparate
 from model.geoformer.geodesic_utils import cal_geodesic_vectorize
-from model.geoformer.geoformer_modules import ResidualBlock, UBlock, conv_with_kaiming_uniform, random_downsample
+from model.geoformer.geoformer_modules import (
+    ResidualBlock,
+    UBlock,
+    conv_with_kaiming_uniform,
+    random_downsample,
+)
 from model.helper import GenericMLP
 from model.pos_embedding import PositionEmbeddingCoordsSine
 from model.transformer_detr import TransformerDecoder, TransformerDecoderLayer
@@ -39,8 +47,10 @@ class GeoFormer(nn.Module):
         norm_fn = functools.partial(nn.BatchNorm1d, eps=1e-4, momentum=0.1)
 
         # backbone
-        self.input_conv = spconv.SparseSequential(
-            spconv.SubMConv3d(input_c, m, kernel_size=3, padding=1, bias=False, indice_key="subm1")
+        self.input_conv = SparseSequential(
+            SubMConv3d(
+                input_c, m, kernel_size=3, padding=1, bias=False, indice_key="subm1"
+            )
         )
         self.unet = UBlock(
             [m, 2 * m, 3 * m, 4 * m, 5 * m, 6 * m, 7 * m],
@@ -50,11 +60,16 @@ class GeoFormer(nn.Module):
             use_backbone_transformer=True,
             indice_key_id=1,
         )
-        self.output_layer = spconv.SparseSequential(norm_fn(m), nn.ReLU())
+        self.output_layer = SparseSequential(norm_fn(m), nn.ReLU())
 
         # semantic segmentation
         self.semantic = nn.Sequential(
-            nn.Linear(m, m, bias=True), norm_fn(m), nn.ReLU(), nn.Linear(m, m, bias=True), norm_fn(m), nn.ReLU()
+            nn.Linear(m, m, bias=True),
+            norm_fn(m),
+            nn.ReLU(),
+            nn.Linear(m, m, bias=True),
+            norm_fn(m),
+            nn.ReLU(),
         )
         self.semantic_linear = nn.Linear(m, classes, bias=True)
 
@@ -76,7 +91,9 @@ class GeoFormer(nn.Module):
         for i in range(before_embedding_conv_num - 1):
             before_embedding_tower.append(conv_block(cfg.dec_dim, cfg.dec_dim))
         before_embedding_tower.append(conv_block(cfg.dec_dim, self.output_dim))
-        self.add_module("before_embedding_tower", nn.Sequential(*before_embedding_tower))
+        self.add_module(
+            "before_embedding_tower", nn.Sequential(*before_embedding_tower)
+        )
 
         # cond inst generate parameters for
         self.use_coords = True
@@ -116,7 +133,9 @@ class GeoFormer(nn.Module):
         )
 
         """ Position embedding """
-        self.pos_embedding = PositionEmbeddingCoordsSine(d_pos=cfg.dec_dim, pos_type="fourier", normalize=True)
+        self.pos_embedding = PositionEmbeddingCoordsSine(
+            d_pos=cfg.dec_dim, pos_type="fourier", normalize=True
+        )
 
         """ DETR-Decoder """
         decoder_layer = TransformerDecoderLayer(
@@ -128,7 +147,9 @@ class GeoFormer(nn.Module):
             use_rel=True,
         )
 
-        self.decoder = TransformerDecoder(decoder_layer, num_layers=cfg.dec_nlayers, return_intermediate=True)
+        self.decoder = TransformerDecoder(
+            decoder_layer, num_layers=cfg.dec_nlayers, return_intermediate=True
+        )
 
         self.query_projection = GenericMLP(
             input_dim=cfg.dec_dim,
@@ -226,19 +247,27 @@ class GeoFormer(nn.Module):
         proposals_npoints = torch.sum(mask_logit_b_bool, dim=1)
         npoints_cond = proposals_npoints >= npoint_thresh
 
-        mask_logit_scores = torch.sum(mask_logit_b * mask_logit_b_bool.int(), dim=1) / (proposals_npoints + 1e-6)
+        mask_logit_scores = torch.sum(mask_logit_b * mask_logit_b_bool.int(), dim=1) / (
+            proposals_npoints + 1e-6
+        )
         mask_logit_scores_cond = mask_logit_scores >= score_thresh
 
-        cls_logits_scores = torch.gather(cls_logits_b, 1, cls_logits_pred_b.unsqueeze(-1)).squeeze(-1)
+        cls_logits_scores = torch.gather(
+            cls_logits_b, 1, cls_logits_pred_b.unsqueeze(-1)
+        ).squeeze(-1)
 
         sem_scores = torch.sum(
-            semantic_scores_b[None, :, :].expand(n_queries, semantic_scores_b.shape[0], semantic_scores_b.shape[1])
+            semantic_scores_b[None, :, :].expand(
+                n_queries, semantic_scores_b.shape[0], semantic_scores_b.shape[1]
+            )
             * mask_logit_b_bool.int()[:, :, None],
             dim=1,
         ) / (
             proposals_npoints[:, None] + 1e-6
         )  # n_pred, n_clas
-        sem_scores = torch.gather(sem_scores, 1, cls_logits_pred_b.unsqueeze(-1)).squeeze(-1)
+        sem_scores = torch.gather(
+            sem_scores, 1, cls_logits_pred_b.unsqueeze(-1)
+        ).squeeze(-1)
 
         scores = mask_logit_scores * torch.pow(cls_logits_scores, 0.5) * sem_scores
 
@@ -252,7 +281,9 @@ class GeoFormer(nn.Module):
         scores_final = scores[final_cond]
 
         num_insts = scores_final.shape[0]
-        proposals_pred = torch.zeros((num_insts, num_points), dtype=torch.int, device=mask_logit_b.device)
+        proposals_pred = torch.zeros(
+            (num_insts, num_points), dtype=torch.int, device=mask_logit_b.device
+        )
 
         inst_inds, point_inds = torch.nonzero(masks_final, as_tuple=True)
 
@@ -268,14 +299,18 @@ class GeoFormer(nn.Module):
 
         num_instances = params.size(0)
         num_layers = len(self.weight_nums)
-        params_splits = list(torch.split_with_sizes(params, self.weight_nums + self.bias_nums, dim=1))
+        params_splits = list(
+            torch.split_with_sizes(params, self.weight_nums + self.bias_nums, dim=1)
+        )
 
         weight_splits = params_splits[:num_layers]
         bias_splits = params_splits[num_layers:]
 
         for l in range(num_layers):
             if l < num_layers - 1:
-                weight_splits[l] = weight_splits[l].reshape(num_instances * out_channels, -1, 1)
+                weight_splits[l] = weight_splits[l].reshape(
+                    num_instances * out_channels, -1, 1
+                )
                 bias_splits[l] = bias_splits[l].reshape(num_instances * out_channels)
             else:
                 weight_splits[l] = weight_splits[l].reshape(num_instances, -1, 1)
@@ -284,14 +319,26 @@ class GeoFormer(nn.Module):
         return weight_splits, bias_splits
 
     def mask_heads_forward(
-        self, geo_dist, mask_features, weights, biases, num_insts, coords_, fps_sampling_coords, use_geo=True
+        self,
+        geo_dist,
+        mask_features,
+        weights,
+        biases,
+        num_insts,
+        coords_,
+        fps_sampling_coords,
+        use_geo=True,
     ):
         assert mask_features.dim() == 3
         n_layers = len(weights)
         n_mask = mask_features.size(0)
-        x = mask_features.permute(2, 1, 0).repeat(num_insts, 1, 1)  # num_inst * c * N_mask
+        x = mask_features.permute(2, 1, 0).repeat(
+            num_insts, 1, 1
+        )  # num_inst * c * N_mask
 
-        relative_coords = fps_sampling_coords.reshape(-1, 1, 3) - coords_.reshape(1, -1, 3)  # N_inst * N_mask * 3
+        relative_coords = fps_sampling_coords.reshape(-1, 1, 3) - coords_.reshape(
+            1, -1, 3
+        )  # N_inst * N_mask * 3
 
         if use_geo:
             n_queries, n_contexts = geo_dist.shape[:2]
@@ -305,9 +352,9 @@ class GeoFormer(nn.Module):
             )  # b x n_queries x n_contexts x 3
 
             cond = (geo_dist < 0).unsqueeze(-1).expand(n_queries, n_contexts, 3)
-            relative_coords[cond] = relative_coords[cond] + max_geo_dist_context[cond] * torch.sign(
-                relative_coords[cond]
-            )
+            relative_coords[cond] = relative_coords[cond] + max_geo_dist_context[
+                cond
+            ] * torch.sign(relative_coords[cond])
 
             relative_coords = relative_coords.permute(0, 2, 1)
             x = torch.cat([relative_coords, x], dim=1)  # num_inst * (3+c) * N_mask
@@ -324,7 +371,13 @@ class GeoFormer(nn.Module):
         return x
 
     def get_mask_prediction(
-        self, geo_dists, param_kernels, mask_features, locs_float_, fps_sampling_locs, batch_offsets_
+        self,
+        geo_dists,
+        param_kernels,
+        mask_features,
+        locs_float_,
+        fps_sampling_locs,
+        batch_offsets_,
     ):
         # param_kernels = param_kernels.permute(0, 2, 1, 3) # num_layers x batch x n_queries x channel
         num_layers, n_queries, batch = (
@@ -342,8 +395,12 @@ class GeoFormer(nn.Module):
                 1, 2
             )  # batch x n_queries x n_classes
 
-            param_kernel2 = param_kernel.transpose(0, 1).flatten(0, 1)  # (batch * n_queries) * channel
-            before_embedding_feature = self.before_embedding_tower(torch.unsqueeze(param_kernel2, dim=2))
+            param_kernel2 = param_kernel.transpose(0, 1).flatten(
+                0, 1
+            )  # (batch * n_queries) * channel
+            before_embedding_feature = self.before_embedding_tower(
+                torch.unsqueeze(param_kernel2, dim=2)
+            )
             controllers = self.controller(before_embedding_feature).squeeze(dim=2)
 
             controllers = controllers.reshape(batch, n_queries, -1)
@@ -394,8 +451,12 @@ class GeoFormer(nn.Module):
         if cfg.use_coords:
             feats = torch.cat((feats, locs_float), 1).float()
 
-        voxel_feats = pointgroup_ops.voxelization(feats, v2p_map, cfg.mode)  # (M, C), float, cuda
-        sparse_input = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, batch_size)
+        voxel_feats = pointgroup_ops.voxelization(
+            feats, v2p_map, cfg.mode
+        )  # (M, C), float, cuda
+        sparse_input = SparseConvTensor(
+            voxel_feats, voxel_coords.int(), spatial_shape, batch_size
+        )
 
         return sparse_input
 
@@ -414,7 +475,9 @@ class GeoFormer(nn.Module):
             batch_input["pc_mins"],
         ]
 
-        output_feats, semantic_scores, semantic_preds = self.forward_backbone(batch_input, batch_size)
+        output_feats, semantic_scores, semantic_preds = self.forward_backbone(
+            batch_input, batch_size
+        )
         outputs["semantic_scores"] = semantic_scores
 
         if epoch <= self.prepare_epochs:
@@ -438,10 +501,14 @@ class GeoFormer(nn.Module):
         output_feats_ = output_feats[fg_idxs]
         semantic_scores_ = semantic_scores[fg_idxs]
 
-        mask_features_ = self.mask_tower(torch.unsqueeze(output_feats_, dim=2).permute(2, 1, 0)).permute(2, 1, 0)
+        mask_features_ = self.mask_tower(
+            torch.unsqueeze(output_feats_, dim=2).permute(2, 1, 0)
+        ).permute(2, 1, 0)
 
         # NOTE aggregator
-        contexts = self.forward_aggregator(locs_float_, output_feats_, batch_offsets_, batch_size)
+        contexts = self.forward_aggregator(
+            locs_float_, output_feats_, batch_offsets_, batch_size
+        )
         if contexts is None:
             outputs["mask_predictions"] = None
             return outputs
@@ -456,20 +523,25 @@ class GeoFormer(nn.Module):
             pre_enc_inds,
             locs_float_,
             batch_offsets_,
-            max_step=128 if self.training else 256,
+            # max_step=128 if self.training else 256,
+            max_step=128,
             neighbor=64,
             radius=0.05,
             n_queries=cfg.n_query_points,
         )
 
         # NOTE transformer decoder
-        dec_outputs = self.forward_decoder(context_locs, context_feats, query_locs, pc_dims, geo_dists, pre_enc_inds)
+        dec_outputs = self.forward_decoder(
+            context_locs, context_feats, query_locs, pc_dims, geo_dists, pre_enc_inds
+        )
 
         if training:
             # NOTE subsample for dynamic conv
 
             # NOTE: downsample when training to avoid OOM
-            idxs_subsample, idxs_subsample_raw = random_downsample(batch_offsets_, batch_size, n_subsample=30000)
+            idxs_subsample, idxs_subsample_raw = random_downsample(
+                batch_offsets_, batch_size, n_subsample=30000
+            )
 
             geo_dists_subsample = []
             for b in range(batch_size):
@@ -479,15 +551,21 @@ class GeoFormer(nn.Module):
             mask_features_subsample = mask_features_[idxs_subsample]
             locs_float_subsample = locs_float_[idxs_subsample]
             batch_idxs_subsample = batch_idxs_[idxs_subsample]
-            batch_offsets_subsample = self.get_batch_offsets(batch_idxs_subsample, batch_size)
-
+            batch_offsets_subsample = self.get_batch_offsets(
+                batch_idxs_subsample, batch_size
+            )
 
             outputs["fg_idxs"] = fg_idxs[idxs_subsample]
             outputs["num_insts"] = cfg.n_query_points * batch_size
             outputs["batch_idxs"] = batch_idxs_subsample
 
             mask_predictions = self.get_mask_prediction(
-                geo_dists_subsample, dec_outputs, mask_features_subsample, locs_float_subsample, query_locs, batch_offsets_subsample
+                geo_dists_subsample,
+                dec_outputs,
+                mask_features_subsample,
+                locs_float_subsample,
+                query_locs,
+                batch_offsets_subsample,
             )
 
             outputs["mask_predictions"] = mask_predictions
@@ -498,9 +576,14 @@ class GeoFormer(nn.Module):
             outputs["fg_idxs"] = fg_idxs
             outputs["num_insts"] = cfg.n_query_points * batch_size
             outputs["batch_idxs"] = batch_idxs_
-
+            torch.cuda.empty_cache()
             mask_predictions = self.get_mask_prediction(
-                geo_dists, dec_outputs, mask_features_, locs_float_, query_locs, batch_offsets_
+                geo_dists,
+                dec_outputs,
+                mask_features_,
+                locs_float_,
+                query_locs,
+                batch_offsets_,
             )
 
             outputs["mask_predictions"] = mask_predictions
@@ -528,7 +611,9 @@ class GeoFormer(nn.Module):
         return outputs
 
     def forward_backbone(self, batch_input, batch_size):
-        context_backbone = torch.no_grad if "unet" in self.fix_module else torch.enable_grad
+        context_backbone = (
+            torch.no_grad if "unet" in self.fix_module else torch.enable_grad
+        )
         with context_backbone():
             p2v_map = batch_input["p2v_map"]
 
@@ -548,8 +633,12 @@ class GeoFormer(nn.Module):
 
             return output_feats, semantic_scores, semantic_preds
 
-    def forward_aggregator(self, locs_float_, output_feats_, batch_offsets_, batch_size):
-        context_aggregator = torch.no_grad if "set_aggregator" in self.fix_module else torch.enable_grad
+    def forward_aggregator(
+        self, locs_float_, output_feats_, batch_offsets_, batch_size
+    ):
+        context_aggregator = (
+            torch.no_grad if "set_aggregator" in self.fix_module else torch.enable_grad
+        )
         with context_aggregator():
 
             context_locs = []
@@ -573,14 +662,19 @@ class GeoFormer(nn.Module):
                     npoint = cfg.n_downsampling
 
                 sampling_indices = torch.tensor(
-                    np.random.choice(batch_points, npoint, replace=False), dtype=torch.long, device=locs_float_.device
+                    np.random.choice(batch_points, npoint, replace=False),
+                    dtype=torch.long,
+                    device=locs_float_.device,
                 )
 
                 locs_float_b = locs_float_b[sampling_indices].unsqueeze(0)
                 output_feats_b = output_feats_b[sampling_indices].unsqueeze(0)
 
-                context_locs_b, grouped_features_b, grouped_xyz_b, pre_enc_inds_b = self.set_aggregator.group_points(
-                    locs_float_b.contiguous(), output_feats_b.transpose(1, 2).contiguous()
+                context_locs_b, grouped_features_b, grouped_xyz_b, pre_enc_inds_b = (
+                    self.set_aggregator.group_points(
+                        locs_float_b.contiguous(),
+                        output_feats_b.transpose(1, 2).contiguous(),
+                    )
                 )
 
                 context_locs.append(context_locs_b)
@@ -598,11 +692,15 @@ class GeoFormer(nn.Module):
 
             return context_locs, context_feats, pre_enc_inds
 
-    def forward_decoder(self, context_locs, context_feats, query_locs, pc_dims, geo_dists, pre_enc_inds):
+    def forward_decoder(
+        self, context_locs, context_feats, query_locs, pc_dims, geo_dists, pre_enc_inds
+    ):
         batch_size = context_locs.shape[0]
 
         context_embedding_pos = self.pos_embedding(context_locs, input_range=pc_dims)
-        context_feats = self.encoder_to_decoder_projection(context_feats.permute(0, 2, 1))  # batch x channel x npoints
+        context_feats = self.encoder_to_decoder_projection(
+            context_feats.permute(0, 2, 1)
+        )  # batch x channel x npoints
 
         """ Init dec_inputs by query features """
         query_embedding_pos = self.pos_embedding(query_locs, input_range=pc_dims)
@@ -623,13 +721,19 @@ class GeoFormer(nn.Module):
 
         geo_dist_context = []
         for b in range(batch_size):
-            geo_dist_context_b = geo_dists[b][:, pre_enc_inds[b].long()]  # n_queries x n_contexts
+            geo_dist_context_b = geo_dists[b][
+                :, pre_enc_inds[b].long()
+            ]  # n_queries x n_contexts
             geo_dist_context.append(geo_dist_context_b)
 
-        geo_dist_context = torch.stack(geo_dist_context, dim=0)  # b x n_queries x n_contexts
+        geo_dist_context = torch.stack(
+            geo_dist_context, dim=0
+        )  # b x n_queries x n_contexts
         max_geo_dist_context = torch.max(geo_dist_context, dim=2)[0]  # b x n_queries
         max_geo_val = torch.max(max_geo_dist_context)
-        max_geo_dist_context[max_geo_dist_context < 0] = max_geo_val  # NOTE assign very big value to invalid queries
+        max_geo_dist_context[max_geo_dist_context < 0] = (
+            max_geo_val  # NOTE assign very big value to invalid queries
+        )
 
         max_geo_dist_context = max_geo_dist_context[:, :, None, None].expand(
             batch_size, n_queries, n_contexts, 3
@@ -641,7 +745,8 @@ class GeoFormer(nn.Module):
         geo_dist_context[cond] = max_geo_dist_context[cond] + relative_coords[cond]
 
         relative_embedding_pos = self.pos_embedding(
-            geo_dist_context.reshape(batch_size, n_queries * n_contexts, -1), input_range=pc_dims
+            geo_dist_context.reshape(batch_size, n_queries * n_contexts, -1),
+            input_range=pc_dims,
         ).reshape(
             batch_size,
             -1,

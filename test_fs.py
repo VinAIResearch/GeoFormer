@@ -31,7 +31,9 @@ def init():
 
 
 def load_set_support(model, dataset):
-    set_support_name = cfg.type_support + str(cfg.cvfold) + "_" + str(cfg.k_shot) + "shot_10sets.pth"
+    set_support_name = (
+        cfg.type_support + str(cfg.cvfold) + "_" + str(cfg.k_shot) + "shot_10sets.pth"
+    )
     set_support_file = os.path.join("exp", cfg.file_support, set_support_name)
 
     # print(set_support_file)
@@ -57,18 +59,31 @@ def load_set_support(model, dataset):
                 for i in range(cfg.k_shot):
                     support_tuple = list_scenes[i]
 
-                    support_scene_name, support_instance_id = support_tuple[0], support_tuple[1]
+                    support_scene_name, support_instance_id = (
+                        support_tuple[0],
+                        support_tuple[1],
+                    )
                     (
                         support_xyz_middle,
                         support_xyz_scaled,
                         support_rgb,
                         support_label,
                         support_instance_label,
-                    ) = dataset.load_single(support_scene_name, aug=False, permutate=False, val=True, support=True)
+                    ) = dataset.load_single(
+                        support_scene_name,
+                        aug=False,
+                        permutate=False,
+                        val=True,
+                        support=True,
+                    )
 
-                    support_mask = (support_instance_label == support_instance_id).astype(int)
+                    support_mask = (
+                        support_instance_label == support_instance_id
+                    ).astype(int)
 
-                    support_batch_offsets = torch.tensor([0, support_xyz_middle.shape[0]], dtype=torch.int)
+                    support_batch_offsets = torch.tensor(
+                        [0, support_xyz_middle.shape[0]], dtype=torch.int
+                    )
                     support_masks_offset = torch.tensor(
                         [0, np.count_nonzero(support_mask)], dtype=torch.int
                     )  # int (B+1)
@@ -79,14 +94,22 @@ def load_set_support(model, dataset):
                         ],
                         1,
                     )
-                    support_locs_float = torch.from_numpy(support_xyz_middle).to(torch.float32)
-                    support_feats = torch.from_numpy(support_rgb).to(torch.float32)  # float (N, C)
+                    support_locs_float = torch.from_numpy(support_xyz_middle).to(
+                        torch.float32
+                    )
+                    support_feats = torch.from_numpy(support_rgb).to(
+                        torch.float32
+                    )  # float (N, C)
                     support_masks = torch.from_numpy(support_mask)
-                    support_spatial_shape = np.clip((support_locs.max(0)[0][1:] + 1).numpy(), cfg.full_scale[0], None)
+                    support_spatial_shape = np.clip(
+                        (support_locs.max(0)[0][1:] + 1).numpy(),
+                        cfg.full_scale[0],
+                        None,
+                    )
 
                     # voxelize
-                    support_voxel_locs, support_p2v_map, support_v2p_map = pointgroup_ops.voxelization_idx(
-                        support_locs, 1, dataset.mode
+                    support_voxel_locs, support_p2v_map, support_v2p_map = (
+                        pointgroup_ops.voxelization_idx(support_locs, 1, dataset.mode)
                     )
 
                     support_dict = {
@@ -154,13 +177,17 @@ def do_test(model, dataset):
                 if torch.is_tensor(query_dict[key]):
                     query_dict[key] = query_dict[key].to(net_device)
 
-            for j, (label, support_dict) in enumerate(zip(active_label, list_support_dicts)):
+            for j, (label, support_dict) in enumerate(
+                zip(active_label, list_support_dicts)
+            ):
                 for k in range(cfg.run_num):  # NOTE number of runs
                     remember = False if (j == 0 and k == 0) else True
 
                     support_embeddings = None
                     if cfg.fix_support:
-                        support_embeddings = set_support_vectors[k][label].unsqueeze(0).to(net_device)
+                        support_embeddings = (
+                            set_support_vectors[k][label].unsqueeze(0).to(net_device)
+                        )
                     else:
                         for key in support_dict:
                             if torch.is_tensor(support_dict[key]):
@@ -180,16 +207,22 @@ def do_test(model, dataset):
                         continue
 
                     benchmark_label = BENCHMARK_SEMANTIC_LABELS[label]
-                    cluster_semantic = torch.ones((proposals_pred.shape[0])).cuda() * benchmark_label
+                    cluster_semantic = (
+                        torch.ones((proposals_pred.shape[0])).cuda() * benchmark_label
+                    )
 
                     clusters[k].append(proposals_pred)
                     cluster_scores[k].append(scores_pred)
                     cluster_semantic_id[k].append(cluster_semantic)
 
                     # torch.cuda.empty_cache()
-
+            print(f"clusters: {clusters}")
+            print(f"cluster_scores: {cluster_scores}")
+            print(f"cluster_semantic_id: {cluster_semantic_id}")
             test_scene_name_arr.append(test_scene_name)
-            gt_file_name = os.path.join(cfg.data_root, cfg.dataset, "val_gt", test_scene_name + ".txt")
+            gt_file_name = os.path.join(
+                cfg.data_root, cfg.dataset, "val_gt", test_scene_name + ".txt"
+            )
             gt_file_arr.append(gt_file_name)
 
             for k in range(cfg.run_num):
@@ -208,12 +241,14 @@ def do_test(model, dataset):
                         clusters[k].float(),
                         cluster_scores[k],
                         cluster_semantic_id[k],
-                        final_score_thresh=0.5
+                        final_score_thresh=0.5,
                     )
 
                 clusters[k] = clusters[k][pick_idxs_cluster].cpu().numpy()
                 cluster_scores[k] = cluster_scores[k][pick_idxs_cluster].cpu().numpy()
-                cluster_semantic_id[k] = cluster_semantic_id[k][pick_idxs_cluster].cpu().numpy()
+                cluster_semantic_id[k] = (
+                    cluster_semantic_id[k][pick_idxs_cluster].cpu().numpy()
+                )
                 nclusters[k] = clusters[k].shape[0]
 
                 if cfg.eval:
@@ -228,7 +263,9 @@ def do_test(model, dataset):
             logger.info(
                 f"Test scene {i+1}/{num_test_scenes}: {test_scene_name} | Elapsed time: {int(overlap_time)}s | Remaining time: {int(overlap_time * float(num_test_scenes-(i+1))/(i+1))}s"
             )
-            logger.info(f"Num points: {N} | Num instances of {cfg.run_num} runs: {nclusters}")
+            logger.info(
+                f"Num points: {N} | Num instances of {cfg.run_num} runs: {nclusters}"
+            )
 
         # evaluation
         if cfg.eval:
@@ -245,7 +282,9 @@ def do_test(model, dataset):
                     test_scene_name = test_scene_name_arr[i]
                     gt_ids = load_ids(gt_file_name)
 
-                    gt2pred, pred2gt = eval.assign_instances_for_scan(test_scene_name, pred_info, gt_ids)
+                    gt2pred, pred2gt = eval.assign_instances_for_scan(
+                        test_scene_name, pred_info, gt_ids
+                    )
                     matches[test_scene_name] = {}
                     matches[test_scene_name]["gt"] = gt2pred
                     matches[test_scene_name]["pred"] = pred2gt
@@ -268,20 +307,38 @@ if __name__ == "__main__":
     model = GeoFormerFS()
     model = model.cuda()
 
-    logger.info("# parameters (model): {}".format(sum([x.nelement() for x in model.parameters()])))
+    logger.info(
+        "# parameters (model): {}".format(
+            sum([x.nelement() for x in model.parameters()])
+        )
+    )
 
     checkpoint_fn = cfg.resume
     if os.path.isfile(checkpoint_fn):
         logger.info("=> loading checkpoint '{}'".format(checkpoint_fn))
         state = torch.load(checkpoint_fn)
+        # print(f"state is")
+        # for key, val in state.items():
+        #     print(f"{key}: {val.shape if hasattr(val, 'shape') else type(val)}")
         model_state_dict = model.state_dict()
-        loaded_state_dict = strip_prefix_if_present(state["state_dict"], prefix="module.")
+        # print(f"model state dict is ")
+        # for key, val in model_state_dict.items():
+        #     print(f"{key}: {val.shape if hasattr(val, 'shape') else type(val)}")
+        loaded_state_dict = strip_prefix_if_present(
+            state["state_dict"], prefix="module."
+        )
+        # print(f"loaded_state_dict is")
+        # for key, val in loaded_state_dict.items():
+        #     print(f"{key}: {val.shape if hasattr(val, 'shape') else type(val)}")
         align_and_update_state_dicts(model_state_dict, loaded_state_dict)
+        # print(f"After alignment model state dict is: ")
+        # for key, val in model_state_dict.items():
+        #     print(f"{key}: {val.shape if hasattr(val, 'shape') else type(val)}")
         model.load_state_dict(model_state_dict)
 
         logger.info("=> loaded checkpoint '{}')".format(checkpoint_fn))
     else:
-        raise RuntimeError
+        raise RuntimeError(f"No checkpoint found at {checkpoint_fn}")
 
     dataset = FSInstDataset(split_set="val")
 
